@@ -11,6 +11,10 @@ from restful_client import post_to_messagebus, post_to_robot
 from polar_plot_widget import PolarPlot
 
 
+# room north offset -52.325 of East wall
+# North&South wall @52.325 (2800mm [27]) East&West @323.325 (3300mm)
+# on map widget draw north offset arrow, and the walls.
+# after scan put the robot estimated  position
 
 
 
@@ -399,7 +403,7 @@ class ClientUi(tk.Frame):
     def do_us_scan_btn(self):
         global clr
         self.polar_plot
-        response = post_to_messagebus('us_scan', {'start_angle': 0, 'stop_angle': 180, 'step': 15}, reply_topic='us_scan_report', reply_timeout=120, wait_timeout=120)
+        response = post_to_messagebus('us_scan', {'start_angle': 0, 'stop_angle': 180, 'step': 10}, reply_topic='us_scan_report', reply_timeout=100, wait_timeout=110)
         print(response)
         theta_vals = [i * 180 / 100 for i in range(101)]
         r_vals = [abs(math.sin(math.radians(t))) for t in theta_vals]

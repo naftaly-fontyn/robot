@@ -2,6 +2,7 @@ import uasyncio as asyncio
 import ujson
 import os
 import sys
+import gc
 
 # Try importing deflate (MicroPython v1.21+), fallback to uzlib if needed (but deflate is required for full GZIP write)
 try:
@@ -10,6 +11,11 @@ try:
 except ImportError:
     HAS_DEFLATE = False
     print("Warning: 'deflate' module missing. Compression features will be limited.")
+
+import utils.t_logger
+from utils.async_task_supervisor import supervised
+log = utils.t_logger.get_logger()
+
 
 MAX_CLIENTS = 5
 MAX_JSON_SIZE = 2048   # 2KB limit for JSON payloads
@@ -125,24 +131,47 @@ class AsyncRestfulServer:
             return handler
         return decorator
 
+    @supervised(restart_delay=2)
     async def run(self):
-        print(f'Starting Server on {self._ip}:{self._port}')
-        return await asyncio.start_server(self._handle_client, self._ip, self._port)
+        log.info(f'Starting Server on {self._ip}:{self._port}')
+        self.server = await asyncio.start_server(self._handle_client, self._ip, self._port)
+        try:
+            # Most uasyncio versions:
+            await self.server.wait_closed()
+        except AttributeError:
+            # Fallback if your MicroPython version is old/minimal:
+            while True:
+                await asyncio.sleep(3600)
 
     # --- Internal Handling ---
 
     async def _handle_client(self, reader, writer):
+        log.info('New Client %d', self._client_count)
         try:
+            self._client_count += 1
             if self._client_count >= MAX_CLIENTS:
                 await self._send_response(writer, 503, "Server Busy")
                 return
-            self._client_count += 1
             await self._handle_request(reader, writer)
         except Exception as e:
+            log.error('!! SERVER ERROR !!', exc_info=e)
+            await self._send_response(writer, 500, "Internal Error")
             sys.print_exception(e)
         finally:
-            self._client_count -= 1
+            log.info('Closing Client %d', self._client_count)
             await writer.aclose()
+            await writer.wait_closed()
+            log.info('Closed Client %d', self._client_count)
+            self._client_count -= 1
+            # 1. Explicitly delete the objects to break references
+            del reader
+            del writer
+
+            # 2. Force Garbage Collection IMMEDIATELY
+            # This is critical on ESP32 to defragment the heap before the next connection.
+            gc.collect()
+
+        log.info(f"Client Closed. Free RAM: {gc.mem_free()}")
 
     async def _handle_request(self, reader, writer):
         try:
@@ -173,9 +202,8 @@ class AsyncRestfulServer:
                 if length > 0:
                     try: await reader.read(min(length, 1024))
                     except: pass
-                print(f"No handler for {path} method {method} ? {query}")
+                log.Warning(f"No handler for {path} method {method} ? {query}")
                 await self._send_response(writer, 404, "Not Found")
-
         except Exception as e:
             sys.print_exception(e)
             await self._send_response(writer, 500, "Internal Error")
@@ -253,15 +281,21 @@ class AsyncRestfulServer:
                 await writer.drain()
 
     async def _send_response(self, writer, status, body=None, ctype="text/plain"):
-        msg = _STATUS_CODES.get(status, "Unknown")
-        writer.write(f"HTTP/1.0 {status} {msg}\r\n".encode())
-        writer.write(f"Content-Type: {ctype}\r\n".encode())
-        if body:
-            writer.write(f"Content-Length: {len(body)}\r\n".encode())
-        writer.write(b"Connection: close\r\n\r\n")
-        if body:
-            writer.write(body.encode())
-        await writer.drain()
+        try:
+            msg = _STATUS_CODES.get(status, "Unknown")
+            writer.write(f"HTTP/1.0 {status} {msg}\r\n".encode())
+            writer.write(f"Content-Type: {ctype}\r\n".encode())
+            if body:
+                writer.write(f"Content-Length: {len(body)}\r\n".encode())
+            writer.write(b"Connection: close\r\n\r\n")
+            if body:
+                writer.write(body.encode())
+            log.info('Drain Writer')
+            # await writer.drain()
+            await asyncio.wait_for(writer.drain(), 5)
+        except Exception as e:
+            log.error('!! SERVER ERROR response!!', exc_info=e)
+            sys.print_exception(e)
 
 
 # ============================================================================
@@ -269,7 +303,6 @@ class AsyncRestfulServer:
 # ============================================================================
 
 def register_system_routes(server):
-
     @server.route("/api/upload", methods=("POST", "PUT"))
     async def upload_handler(srv, writer, query, request):
         """

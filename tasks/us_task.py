@@ -3,11 +3,16 @@ from machine import Pin
 from boards.matrixbit_on3 import MBIT_PIN_MAP
 from devices.ultrasonic.hcsr04 import HCSR04
 from utils.messagebus import Subscriber, Publisher
+from utils.async_task_supervisor import supervised
+from utils.t_logger import get_logger
 from tasks.display_task import PRINT
 
 TRIGGER_PIN = 1
 ECHO_PIN = 2
 
+log = get_logger()
+
+@supervised(restart_delay=2)
 async def us_task():
     """
     Task to control ultrasonic sensor

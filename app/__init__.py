@@ -5,12 +5,14 @@ Software models controlling the robot device communicate using a
 messagebus that enable to decimate messages. module may subscribe to
 topics and post messages/events to topics
 """
+import sys
 import time
 import asyncio
 import gc
 import machine
 import micropython
 
+import utils.t_logger
 from utils.init_wifi import init_wifi
 from utils.async_restful_server import AsyncRestfulServer
 from tasks.display_task import display_task, PRINT
@@ -24,6 +26,9 @@ from tasks.servo_task import servo_task
 from tasks.leds_task import led_task
 from tasks.ahrs_task import ahrs_task
 from tasks.motors_task import motors_task
+
+
+log = utils.t_logger.get_logger()
 
 def i2c_bus_recovery(scl, sda):
     """
@@ -52,9 +57,14 @@ def i2c_bus_recovery(scl, sda):
 
 
 def main():
-    print('=== APP Main ===')
+    log.info('=== APP Main ===')
     asyncio.run(async_main())
 
+def global_exception_handler(loop, context):
+    """Catch anything not covered by decorators"""
+    exception = context.get('exception')
+    msg = context.get('message')
+    log.warning("!! GLOBAL HANDLER CAUGHT UNHANDLED ERROR !!", exc_info=exception)
 
 async def async_main():
     print('APP')
@@ -77,6 +87,9 @@ async def async_main():
 
     pwm_controller = Pca9685(i2c_obj=main_i2c, pwm_freq=50)
     PRINT('PCA9685 PWM')
+
+    loop = asyncio.get_event_loop()
+    loop.set_exception_handler(global_exception_handler)
 
     # Setup Tasks
     asyncio.create_task(led_task())

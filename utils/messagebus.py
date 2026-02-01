@@ -1,6 +1,11 @@
 # messagebus.py
 import uasyncio as asyncio
 
+from utils.t_logger import get_logger
+log = get_logger()
+
+
+
 class QueueEmpty(Exception):
     pass
 
@@ -102,7 +107,9 @@ class Subscriber:
 
     async def get(self, timeout=None):
         """Wait for next message from ANY subscribed topic."""
-        return await self.queue.get(timeout=timeout)
+        ret = await self.queue.get(timeout=timeout)
+        log.info('Subsider %s get: %s', self.id ,ret)
+        return ret
 
     def get_nowait(self):
         """Get message if available, else return None."""
@@ -193,6 +200,7 @@ class MessageBus:
 
     def publish(self, topic: str, sender_id=None, message=None):
         """Low-level publish (used by Publisher)."""
+
         t = self.get_topic(topic)
         t.publish(sender_id, message)
 
@@ -210,6 +218,7 @@ class Publisher:
         self.bus = MessageBus.instance()
 
     def publish(self, topic: str, message=None):
+        log.info('Publish topic:%s sender_id:%s message:%s', topic, self.id, message)
         self.bus.publish(topic, sender_id=self.id, message=message)
 
     def event(self, topic: str):
