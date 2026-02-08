@@ -1,9 +1,6 @@
 import uasyncio as asyncio
 import sys
 
-import utils.t_logger
-log = utils.t_logger.get_logger()
-
 
 def supervised(restart_delay=5, log_file='error.log'):
     """
@@ -20,13 +17,13 @@ def supervised(restart_delay=5, log_file='error.log'):
 
                 except asyncio.CancelledError:
                     # IMPORTANT: Allow the task to be cancelled cleanly
-                    log.info(f"[{func.__name__}] Task cancelled.")
+                    print(f"[{func.__name__}] Task cancelled.")
                     raise
 
                 except Exception as e:
-                    log.warning(f"[{func.__name__}] CRASHED: ", exc_info=e)
+                    print(f"[{func.__name__}] CRASHED: ", exc_info=e)
 
-                    log.info(f"[{func.__name__}] Restarting in {restart_delay}s...")
+                    print(f"[{func.__name__}] Restarting in {restart_delay}s...")
                     await asyncio.sleep(restart_delay)
         return wrapper
     return decorator

@@ -2,19 +2,13 @@
 import os
 import sys
 import gc
-import utils.t_logger
-
-# create the logger
-log = utils.t_logger.get_logger(
-    filename='logs/log.txt', level=utils.t_logger.DEBUG, to_console=True,
-    max_bytes=16384, backup_count=4)
 
 try:
     # 1. THE TRIGGER
     os.remove('mode.ota')
 
     # --- IF WE ARE HERE, OTA IS REQUIRED ---
-    log.info('=== Starting OTA ===')
+    print('=== Starting OTA ===')
 
     # 2. THE INTERNAL SAFETY NET
     # We must catch errors here so they don't jump to the 'except OSError' below
@@ -23,7 +17,7 @@ try:
         gc.collect()
         main()
     except Exception as e:
-        log.error("OTA Critical Failure:", exc_info=e)
+        print("OTA Critical Failure:")
         sys.print_exception(e)
 
     # 3. STOP.
@@ -36,16 +30,16 @@ except OSError:
     pass
 
 # --- APP MODE ---
-log.info('=== Starting App ===')
+print('=== Starting App ===')
 try:
     from app import main
     gc.collect()
     main()
 except Exception as e:
-    log.error('\nApp Crash:\n', exc_info=e)
+    print('\nApp Crash:\n')
     sys.print_exception(e)
 
-log.info("Exit")
+print("Exit")
 # import time
 # time.sleep(5)
 # sys.exit(0)

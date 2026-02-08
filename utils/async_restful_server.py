@@ -12,10 +12,7 @@ except ImportError:
     HAS_DEFLATE = False
     print("Warning: 'deflate' module missing. Compression features will be limited.")
 
-import utils.t_logger
 from utils.async_task_supervisor import supervised
-log = utils.t_logger.get_logger()
-
 
 MAX_CLIENTS = 5
 MAX_JSON_SIZE = 2048   # 2KB limit for JSON payloads
@@ -133,7 +130,7 @@ class AsyncRestfulServer:
 
     @supervised(restart_delay=2)
     async def run(self):
-        log.info(f'Starting Server on {self._ip}:{self._port}')
+        print(f'Starting Server on {self._ip}:{self._port}')
         self.server = await asyncio.start_server(self._handle_client, self._ip, self._port)
         try:
             # Most uasyncio versions:
@@ -146,7 +143,7 @@ class AsyncRestfulServer:
     # --- Internal Handling ---
 
     async def _handle_client(self, reader, writer):
-        log.info('New Client %d', self._client_count)
+        print('New Client %d', self._client_count)
         try:
             self._client_count += 1
             if self._client_count >= MAX_CLIENTS:
@@ -154,14 +151,14 @@ class AsyncRestfulServer:
                 return
             await self._handle_request(reader, writer)
         except Exception as e:
-            log.error('!! SERVER ERROR !!', exc_info=e)
+            print('!! SERVER ERROR !!')
             await self._send_response(writer, 500, "Internal Error")
             sys.print_exception(e)
         finally:
-            log.info('Closing Client %d', self._client_count)
+            print('Closing Client %d', self._client_count)
             await writer.aclose()
             await writer.wait_closed()
-            log.info('Closed Client %d', self._client_count)
+            print('Closed Client %d', self._client_count)
             self._client_count -= 1
             # 1. Explicitly delete the objects to break references
             del reader
@@ -171,7 +168,7 @@ class AsyncRestfulServer:
             # This is critical on ESP32 to defragment the heap before the next connection.
             gc.collect()
 
-        log.info(f"Client Closed. Free RAM: {gc.mem_free()}")
+        print(f"Client Closed. Free RAM: {gc.mem_free()}")
 
     async def _handle_request(self, reader, writer):
         try:
@@ -202,7 +199,7 @@ class AsyncRestfulServer:
                 if length > 0:
                     try: await reader.read(min(length, 1024))
                     except: pass
-                log.Warning(f"No handler for {path} method {method} ? {query}")
+                print(f"No handler for {path} method {method} ? {query}")
                 await self._send_response(writer, 404, "Not Found")
         except Exception as e:
             sys.print_exception(e)
@@ -290,11 +287,11 @@ class AsyncRestfulServer:
             writer.write(b"Connection: close\r\n\r\n")
             if body:
                 writer.write(body.encode())
-            log.info('Drain Writer')
+            print('Drain Writer')
             # await writer.drain()
             await asyncio.wait_for(writer.drain(), 5)
         except Exception as e:
-            log.error('!! SERVER ERROR response!!', exc_info=e)
+            print('!! SERVER ERROR response!!',e)
             sys.print_exception(e)
 
 
