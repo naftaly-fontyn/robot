@@ -104,8 +104,8 @@ async def async_main():
         try:
             with open("mode.ota", "w") as f:
                 f.write("enter")
-            req.server._send_response_packet(req.address, req.token, req.msg_id, RESP_CHANGED, {"text": "OK"})
-            asyncio.sleep(1)
+            req.server._send_response_packet(req.addr, req.token, req.msg_id, RESP_CHANGED, {"text": "OK"})
+            await asyncio.sleep(1)
             machine.soft_reset()
         except Exception as e:
             print(e)
