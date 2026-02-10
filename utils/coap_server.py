@@ -4,6 +4,8 @@ import ujson
 import uasyncio as asyncio
 import random
 import time
+import gc
+from micropython import mem_info, qstr_info
 
 # --- CoAP Constants ---
 COAP_PORT = 5683
@@ -206,6 +208,9 @@ class AsyncCoAPServer:
 
                 if time.time() - self.last_cleanup > 10:
                     self._cleanup_partials()
+                gc.collect()
+                mem_info()
+                print(qstr_info(), len(self.pending_requests))
             except OSError:
                 await asyncio.sleep(0.01)
             except Exception as e:

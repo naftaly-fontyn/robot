@@ -113,23 +113,32 @@ async def async_main():
 
     @coap.route("/app/messagebus", methods=("POST",))
     async def messagebus_handler(req: CoAPRequest):
-        print('=== MessaheBus ===')
+        # print('=== MessageBus ===')
         data = req.json
         if not data:
-            # await app_server._send_response(writer, 400, "Bad Request missing body")
             return RESP_BAD_REQ, {'text': "Bad Request missing body"}
+
         publisher.publish(data['topic'], data['payload'])
+
         if data.get('wait_reply', 'No').upper() == 'YES' or data.get('reply_topic', None):
             req.send_ack()
-            topic, sender_id, message = await Subscriber(
-                subscriber_id='messagebus_handler', topics=data['reply_topic']).get(
-                    timeout=float(data.get('reply_timeout', 2)))
-            # await app_server.send_json(
-            #     writer, {'topic': topic, 'sender_id': sender_id, 'message': message})
-            return RESP_CONTENT, {'topic': topic, 'sender_id': sender_id, 'message': message}
+
+            # 1. Create the subscriber explicitly
+            sub = Subscriber(subscriber_id='messagebus_handler', topics=data['reply_topic'])
+
+            try:
+                # 2. Wait for the message
+                topic, sender_id, message = await sub.get(timeout=float(data.get('reply_timeout', 2)))
+                return RESP_CONTENT, {'topic': topic, 'sender_id': sender_id, 'message': message}
+            except asyncio.TimeoutError:
+                return RESP_INTERNAL_ERR, {'text': "Timeout waiting for reply"}
+            finally:
+                # 3. CRITICAL: Unsubscribe and remove from global bus
+                sub.close()
+                del sub
         else:
-            # await app_server._send_response(writer, 200, "OK")
             return RESP_CHANGED, {"text": "OK"}
+
     print('Done routs')
     gc.collect()
 
