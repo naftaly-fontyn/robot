@@ -11,10 +11,9 @@ import asyncio
 import gc
 import machine
 import micropython
-import ujson
 
 # --- Utils ---
-# import utils.t_logger
+import utils.t_logger as t_logger
 from utils.init_wifi import init_wifi
 from utils.messagebus import MessageBus, Subscriber, Publisher
 from utils.coap_server import (
@@ -34,7 +33,7 @@ from tasks.leds_task import led_task
 from tasks.ahrs_task import ahrs_task
 from tasks.motors_task import motors_task
 
-# log = utils.t_logger.get_logger()
+log = t_logger.get_logger()
 
 # Global reference (useful for debugging in REPL)
 coap = None
@@ -52,7 +51,8 @@ def i2c_bus_recovery(scl, sda):
 
 async def async_main():
     global coap
-    print('=== APP START (CoAP Native) ===')
+    print('=== APP START ===')
+    log.info('=== APP START (CoAP Native) ===')
     gc.collect()
 
     # 1. Initialize WiFi First
@@ -67,28 +67,25 @@ async def async_main():
     scl_pin = machine.Pin(mbit.MBIT_PIN_MAP['P19'], machine.Pin.OUT)
     sda_pin = machine.Pin(mbit.MBIT_PIN_MAP['P20'], machine.Pin.IN)
     i2c_bus_recovery(scl_pin, sda_pin)
-    print('[Init] I2C Bus Recovery')
+    log.info('[Init] I2C Bus Recovery')
     main_i2c = machine.I2C(0, scl=machine.Pin(mbit.MBIT_PIN_MAP['P19']),
                            sda=machine.Pin(mbit.MBIT_PIN_MAP['P20']),
                            freq=400_000)
-    print('[Init] I2C Scanned:', main_i2c.scan())
+    log.info('[Init] I2C Scanned:', main_i2c.scan())
     gc.collect()
 
     pwm_controller = Pca9685(i2c_obj=main_i2c, pwm_freq=50)
-    print('[Init] PCA9685 Ready')
+    log.info('[Init] PCA9685 Ready')
     gc.collect()
 
-
-    # 3. Initialize CoAP Server & Publisher
-    # We do this HERE so sockets are created only after WiFi is up
     coap = AsyncCoAPServer()
-    print('[Init] CoAP Server Ready')
+    log.start_broadcast()
+    log.info('[Init] CoAP Server Started')
     gc.collect()
 
     coap_pub = Publisher('coap_in')
 
     # --- DEFINE ROUTES (Inside async_main scope) ---
-
     @coap.route('/app/ping', ('GET',))
     async def ping_handler(req: CoAPRequest):
         return RESP_CONTENT, {'text': 'OK'}
@@ -100,7 +97,7 @@ async def async_main():
 
     @coap.route("/ota/enter", methods=("POST",))
     async def ota_enter_handler(req: CoAPRequest):
-        print('=== OTA ===')
+        log.warning('=== OTA ===')
         try:
             with open("mode.ota", "w") as f:
                 f.write("enter")
@@ -113,7 +110,7 @@ async def async_main():
 
     @coap.route("/app/messagebus", methods=("POST",))
     async def messagebus_handler(req: CoAPRequest):
-        # print('=== MessageBus ===')
+        log.info('=== MessageBus ===')
         data = req.json
         if not data:
             return RESP_BAD_REQ, {'text': "Bad Request missing body"}
@@ -139,13 +136,22 @@ async def async_main():
         else:
             return RESP_CHANGED, {"text": "OK"}
 
-    print('Done routs')
+    @coap.route('/app/log/level', ('POST',))
+    async def log_level_handler(req: CoAPRequest):
+        data = req.json
+        if not data:
+            return RESP_BAD_REQ, {'text': "Missing body"}
+
+        log.set_level(console=data.get('console'), network=data.get('network'))
+        return RESP_CHANGED, {"console": log.level_console, "network": log.level_network}
+
+    log.info('Done routs')
     gc.collect()
 
     # --- START TASKS ---
     # 4. Start Server Task
     asyncio.create_task(coap.run())
-    print('[Init] CoAP Server Started')
+    log.info('[Init] CoAP Server Started')
     # gc.collect()
 
     # 5. Start Hardware Tasks
@@ -161,21 +167,12 @@ async def async_main():
     await asyncio.sleep(0.5)
     asyncio.create_task(motors_task(pwm_controller, 0, 2, True))
     gc.collect()
-    # mem_profile('Hardware Tasks started')
     print('[Init] Hardware Tasks Started')
     gc.collect()
 
-    # 6. Discovery Loop
-    # Broadcasts "I am here" every 5s for the Host PC
-    # async def discovery_loop():
-    #     while True:
-    #         # coap.broadcast_presence()
-    #         await asyncio.sleep(5)
-    # asyncio.create_task(discovery_loop())
-
-    # gc.collect()
     micropython.mem_info()
-    print("=== System Ready ===")
+    log.info(t_logger.mem_info_str())
+    log.warning("=== System Ready ===")
 
     while True:
         if subscribe.get_nowait():

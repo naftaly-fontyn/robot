@@ -194,7 +194,7 @@ async def ahrs_task(i2c_obj):
         IMU = qmi8658.QMI8658(i2c_obj)
     if MAG is None:
         MAG = MMC5983(i2c_obj)
-    print(IMU)
+    # print(IMU)
     imu = IMU
     mag = MAG
     await asyncio.sleep(0.5)

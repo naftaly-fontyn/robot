@@ -1,5 +1,11 @@
 # messagebus.py
 import uasyncio as asyncio
+import utils.t_logger as t_logger
+log = t_logger.get_logger()
+
+# -------------------------------
+# Queue
+# -------------------------------
 
 
 class QueueEmpty(Exception):
@@ -104,7 +110,7 @@ class Subscriber:
     async def get(self, timeout=None):
         """Wait for next message from ANY subscribed topic."""
         ret = await self.queue.get(timeout=timeout)
-        print('Subscribe %s get: %s' % (self.id ,ret))
+        log.debug('Subscribe %s get: %s' % (self.id ,ret))
         return ret
 
     def get_nowait(self):
@@ -214,7 +220,7 @@ class Publisher:
         self.bus = MessageBus.instance()
 
     def publish(self, topic: str, message=None):
-        print('Publish topic:%s sender_id:%s message:%s' % (topic, self.id, message))
+        log.debug('Publish topic:%s sender_id:%s message:%s' % (topic, self.id, message))
         self.bus.publish(topic, sender_id=self.id, message=message)
 
     def event(self, topic: str):

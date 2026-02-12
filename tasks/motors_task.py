@@ -8,6 +8,9 @@ from mbit_ext.superbit_extension_board import Motor, Pca9685
 from utils.messagebus import Subscriber, Publisher
 from tasks.display_task import PRINT
 from utils.calibration import calibration
+import utils.t_logger as t_logger
+log = t_logger.get_logger()
+
 
 WHEEL_BASE = (115 + 75) /2  # mm
 WHEEL_DIAMETER = 37  # mm
@@ -30,7 +33,7 @@ def calibrate_motor(calib_motor, break_motor):
     for pwm in (10, 20, 30, 40, 50, 60, 70,80, 90, 95):
         ret = _estimate_vss_and_tau(calib_motor, break_motor, buf, gyro_bias, _calib, pwm)
         _calib.append(ret)
-        print(ret['pwm'], ret['Vss'], ret['tau'])
+        log.debug(ret['pwm'], ret['Vss'], ret['tau'])
     calib[f'M{calib_motor.motor_id}'] = _calib
     # print(calib)
     calibration.set('motors', calib)
@@ -105,7 +108,7 @@ async def motors_task(pwm_controller, motor0_id, motor1_id, revers_motor1):
 
     sbr_us = Subscriber('motors_task', topics='motors_task')
     plsh = Publisher('motors_task')
-    print('start motors_task')
+    log.info('start motors_task')
     while True:
         topic, src, message = await sbr_us.get()
         if 'calibrate' in message:

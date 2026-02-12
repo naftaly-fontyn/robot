@@ -4,6 +4,9 @@ import machine
 import devices.display.nano_gui.drivers.ssd1306.ssd1306 as ssd1306
 import boards.matrixbit_on3 as mbit
 from utils.messagebus import Subscriber, Publisher
+import utils.t_logger as t_logger
+log = t_logger.get_logger()
+
 
 # display
 #       clear rect xy xy/wh
@@ -34,7 +37,7 @@ class _Print:
 
     def __call__(self, *a, **k):
         s = ' '.join([str(i) for i in a])
-        print(f'Info: {s}')
+        log.info(s)
         if not self.dsp:
             return
         while s:
@@ -86,7 +89,7 @@ def display_task(i2c_obj, width=128, height=64):
     window = [0, 0, width, height, width, height]
     while True:
         topic, src, message = await subscription.get()
-        print(message)
+        log.debug(message)
         if 'set_window' in message:
             if message['set_window'] == 'reset':
                 window = [0, 0, width, height]

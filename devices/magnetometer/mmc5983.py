@@ -2,6 +2,8 @@ from machine import SoftI2C
 from sys import maxsize
 import time
 import ustruct
+import utils.t_logger as t_logger
+log = t_logger.get_logger()
 
 from utils.calibration import calibration
 
@@ -38,8 +40,7 @@ class MMC5983:
         # Check ID
         pid = self._read_reg(self.REG_ID, 1)
         if pid:
-            print(f"MMC5983: Found ID {hex(pid[0])}")
-
+            log.info(f"MMC5983: Found ID {hex(pid[0])}")
         # Initialize
         self.reset()
         self.enable_continuous()
@@ -48,7 +49,7 @@ class MMC5983:
         try:
             self.i2c.writeto_mem(self.addr, reg, bytes([val]))
         except Exception as e:
-            print(f"Write Error: {e}")
+            log.error(f"Write Error: {e}")
 
     def _read_reg(self, reg, length):
         try:
@@ -67,7 +68,7 @@ class MMC5983:
         self._write_reg(self.REG_CTRL2, val)
         self._write_reg(self.REG_CTRL0, 0x08)
         time.sleep(0.1)
-        print("MMC5983: Continuous 100Hz Enabled")
+        log.info("MMC5983: Continuous 100Hz Enabled")
 
     def read_mag_xyz_raw(self):
         """Returns a tuple of raw, re-oriented 18-bit sensor values (x, y, z)."""
@@ -88,7 +89,7 @@ class MMC5983:
             return (x_out, y_out, z_out)
 
         except Exception as e:
-            print(f"Error reading mag raw: {e}")
+            log.error(f"Error reading mag raw: {e}")
             return None
     def read_mag_xyz(self):
         """Returns a calibrated and normalized tuple (x, y, z)."""
@@ -129,11 +130,11 @@ class MMC5983:
             self._calib[0] = [100/(max_x - min_x), (max_x + min_x)/2]
             self._calib[1] = [100/(max_y - min_y), (max_y + min_y)/2]
             self._calib[2] = [100/(max_z - min_z), (max_z + min_z)/2]
-            print(f"Calibration Complete: {self._calib}")
+            log.warning(f"Calibration Complete: {self._calib}")
             calibration.set('MMC5983', self._calib)
             calibration.save_calibration()
             return True
-        print("Calibration Failed")
+        log.error("Calibration Failed")
         return False
 
 

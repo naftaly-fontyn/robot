@@ -6,6 +6,9 @@ import random
 import time
 import gc
 from micropython import mem_info, qstr_info
+import utils.t_logger as t_logger
+
+log = t_logger.get_logger()
 
 # --- CoAP Constants ---
 COAP_PORT = 5683
@@ -154,7 +157,7 @@ class AsyncCoAPServer:
     def __init__(self, port=COAP_PORT, max_workers=10):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.setblocking(False)
-        # self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.sock.bind(('0.0.0.0', port))
 
         self.msg_id = random.randint(0, 60000)
@@ -171,9 +174,9 @@ class AsyncCoAPServer:
         self.max_workers = max_workers
         self.active_workers = 0
 
-        print(f"[CoAP] Server Active on :{port}")
+        log.info(f"[CoAP] Server Active on :{port}")
 
-    def route(self, path, methods=[METHOD_GET]):
+    def route(self, path, methods=['GET']):
         """Decorator to register a handler."""
         def decorator(handler):
             clean_path = "/" + path.strip("/")
@@ -188,7 +191,6 @@ class AsyncCoAPServer:
         while True:
             try:
                 data, addr = self.sock.recvfrom(1500)
-                print(addr, data)
 
                 # 1. Parse Synchronously & Free Data
                 req = CoAPRequest(self, addr, packet=data)
@@ -200,7 +202,7 @@ class AsyncCoAPServer:
                         self.active_workers += 1
                         asyncio.create_task(self._run_worker(req))
                     else:
-                        print(f"[CoAP] Server Busy: Rejecting {req.addr}")
+                        log.warning(f"[CoAP] Server Busy: Rejecting {req.addr}")
                         if req.type == TYPE_CON:
                             self._send_ack(req.addr, req.token, req.msg_id, RESP_SERVICE_UNAVAILABLE)
                         elif req.type == TYPE_NON:
@@ -210,11 +212,12 @@ class AsyncCoAPServer:
                     self._cleanup_partials()
                 gc.collect()
                 mem_info()
-                print(qstr_info(), len(self.pending_requests))
+                log.warning(t_logger.mem_info_str())
+                # print(qstr_info(), len(self.pending_requests))
             except OSError:
                 await asyncio.sleep(0.01)
             except Exception as e:
-                print(f"[CoAP] Critical: {e}")
+                log.critical(f"[CoAP] Critical: {e}")
                 await asyncio.sleep(0.1)
 
     async def _run_worker(self, req):
@@ -278,6 +281,9 @@ class AsyncCoAPServer:
                 route_def = self.routes[req.path]
                 if CODE_TO_METHOD.get(req.method) not in route_def['methods']:
                     if req.type == TYPE_CON: self._send_ack(req.addr, req.token, req.msg_id, RESP_METHOD_NOT_ALLOWED)
+                    else:
+                        log.warning(f"[CoAP] Method {CODE_TO_METHOD.get(req.method)} not allowed on {req.path} - Ignoring request")
+
                     return
 
                 try:
@@ -312,16 +318,18 @@ class AsyncCoAPServer:
                     # If result is None, we assume handler sent its own reply or will later
 
                 except Exception as e:
-                    print(f"[CoAP] Handler Err: {e}")
+                    log.error(f"[CoAP] Handler Err: {e}")
                     if req.ack_sent:
                         self._send_separate_response(req.addr, req.token, RESP_INTERNAL_ERR, {'text': str(e)})
                     elif req.type == TYPE_CON:
                         self._send_ack(req.addr, req.token, req.msg_id, RESP_INTERNAL_ERR)
             else:
+                log.info(f"[CoAP] Unhandled: {req.addr} T:{req.type} C:{req.method} P:'{req.path}'")
+
                 if req.type == TYPE_CON: self._send_ack(req.addr, req.token, req.msg_id, RESP_NOT_FOUND)
 
         except Exception as e:
-            print(f"[CoAP] Parse Error: {e}")
+            log.error(f"[CoAP] Parse Error: {e}")
 
     # --- Helpers ---
 
@@ -402,6 +410,7 @@ class AsyncCoAPServer:
 
     def transmit(self, ip, path, payload, method=METHOD_POST, confirmable=False, port=COAP_PORT):
         try:
+            log.info(f"[CoAP] TX {CODE_TO_METHOD.get(method, method)} {ip}:{port}/{path}")
             if isinstance(payload, dict): payload = ujson.dumps(payload).encode('utf-8')
             elif isinstance(payload, str): payload = payload.encode('utf-8')
             t_type = TYPE_CON if confirmable else TYPE_NON
@@ -409,15 +418,34 @@ class AsyncCoAPServer:
             h = (1 << 6) | (t_type << 4) | 0
             header = struct.pack('!BBH', h, method, self.msg_id)
             options = bytearray()
-            segments = [s for s in path.strip('/').split('/') if s]
+
+            # Split path and query
+            path_parts = path.split('?', 1)
+            path_root = path_parts[0]
+            query_str = path_parts[1] if len(path_parts) > 1 else ""
+
+            segments = [s for s in path_root.strip('/').split('/') if s]
             last_opt = 0
             for seg in segments:
                 delta = 11 - last_opt; last_opt = 11
                 sb = seg.encode('utf-8')
                 options.extend(self._encode_opt_head(delta, len(sb)))
                 options.extend(sb)
-            self.sock.sendto(header + options + b'\xFF' + payload, (ip, port))
-        except: pass
+
+            if query_str:
+                queries = query_str.split('&')
+                for q in queries:
+                    delta = 15 - last_opt; last_opt = 15
+                    sb = q.encode('utf-8')
+                    options.extend(self._encode_opt_head(delta, len(sb)))
+                    options.extend(sb)
+
+            if payload:
+                self.sock.sendto(header + options + b'\xFF' + payload, (ip, port))
+            else:
+                self.sock.sendto(header + options, (ip, port))
+        except Exception as e:
+            log.error(f"[CoAP] Transmit Error: {e}")
 
     def _encode_opt_head(self, delta, length):
         b = bytearray()
@@ -429,6 +457,7 @@ class AsyncCoAPServer:
         if length >= 269: b.extend(struct.pack('!H', length-269))
         elif length >= 13: b.append(length-13)
         return b
+
 
     def _send_block_ack(self, addr, token, msg_id, code, block_val):
         h = (1 << 6) | (TYPE_ACK << 4) | (len(token) & 0x0F)

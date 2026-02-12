@@ -1,8 +1,7 @@
-import _thread
 import time
-import os
-import sys
-import uio
+import esp32
+import gc
+import usocket as socket
 
 # Log Levels
 DEBUG    = 10
@@ -19,167 +18,88 @@ LEVEL_NAMES = {
     50: "CRIT"
 }
 
-# Singleton instance holder
 _logger_instance = None
 
-class ThreadedLogger:
-    def __init__(self, filename="log.txt", level=INFO, to_console=True,
-                 logger_name="", max_bytes=4096, backup_count=2):
-        self.filename = filename
-        self.level = level
-        self.to_console = to_console
-        self.name = logger_name
-        self.max_bytes = max_bytes
-        self.backup_count = backup_count
-        self._ensure_path(filename)
-        self.queue = []
-        self.lock = _thread.allocate_lock()
-        self.running = True
+class Logger:
+    def __init__(self, level=WARNING):
+        self.level_console = level
+        self.level_network = INFO
+        self.sock = None
+        self.multicast_ip = '224.0.1.187'
+        self.multicast_port = 5683
+        self.topic = "log"
 
-        # Start the background file writer
-        _thread.start_new_thread(self._worker, ())
+    def set_level(self, console=None, network=None):
+        """Change log levels at runtime."""
+        if console is not None:
+            self.level_console = int(console)
+        if network is not None:
+            self.level_network = int(network)
+        _logger_instance.info(f'Change log level Console {self.level_console}, Network {self.level_network}')
 
-    def _ensure_path(self, path):
-        """
-        Checks if the directory for the log file exists.
-        If not, creates it (supports nested paths like 'logs/2023/sys.log').
-        """
-        # If it's just 'log.txt', no directory needed
-        if "/" not in path:
+    def start_broadcast(self, ip='224.0.1.187', port=5683):
+        """Enable UDP multicast logging."""
+        self.multicast_ip = ip
+        self.multicast_port = port
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        print(f"[Logger] UDP logging enabled to {ip}:{port}")
+
+    def log(self, level, msg, *args, **kwargs):
+        if level < self.level_console and level < self.level_network:
             return
 
-        # Split path: "logs/current/sys.log" -> ["logs", "current"]
-        parts = path.split("/")[:-1]
-
-        # Reconstruct and check each level
-        current_path = ""
-        for part in parts:
-            if current_path == "":
-                current_path = part
-            else:
-                current_path += "/" + part
-
+        if args:
             try:
-                # Check if dir exists
-                os.stat(current_path)
-            except OSError:
-                # Doesn't exist, create it
-                try:
-                    os.mkdir(current_path)
-                    print(f"[Logger] Created directory: {current_path}")
-                except Exception as e:
-                    print(f"[Logger] Failed to create dir {current_path}: {e}")
+                msg = msg % args
+            except:
+                pass
 
-    def _format(self, level, msg, **kwargs):
-        t = time.localtime()
-        # [HH:MM:SS] [LEVEL] [file:line] Message
-        ts = "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
-        level_name = LEVEL_NAMES.get(level, "LOG")
-        f_path = kwargs.get('file_path', None)
-        func = kwargs.get('function', None)
-        l_num = kwargs.get('line_number', None)
-        meta = ""
-        if self.name:
-            meta += f"[{self.name}] "
-        if f_path:
-            meta += f"[{f_path}"
-            if l_num: meta += f":{l_num}"
-            meta += "] "
-        elif l_num:
-            meta += f"[:{l_num}] " # Line number only
-        if func:
-            meta += f"[{func}] "
+        # Console Logging
+        if level >= self.level_console:
+            t = time.localtime()
+            ts = "{:02d}:{:02d}:{:02d}".format(t[3], t[4], t[5])
+            lname = LEVEL_NAMES.get(level, "LOG")
+            print(f"[{ts}] [{lname}] {msg}")
 
-        full_msg = f"[{ts}] [{level_name}] {meta}{msg}\n"
-        return full_msg
+        # Network Logging (CoAP Multicast)
+        if level >= self.level_network and self.sock:
+            try:
+                lname = LEVEL_NAMES.get(level, "LOG")
+                payload = f"[{lname}] {msg}"
+                self.sock.sendto(payload.encode('utf-8'), (self.multicast_ip, self.multicast_port))
+            except Exception as e:
+                print(f"[Logger] Network Error: {e}")
 
-    def log(self, level, msg, *args, exc_info=None, **kwargs):
-        if level >= self.level:
-            if args:
-                try:
-                    msg = msg % args
-                except Exception:
-                    # Fallback if arguments don't match format string
-                    msg = f"{msg} [Formatting Error: {args}]"
+    def debug(self, msg, *args, **kwargs):
+        self.log(DEBUG, msg, *args, **kwargs)
 
-            full_msg = self._format(level, msg, **kwargs)
+    def info(self, msg, *args, **kwargs):
+        self.log(INFO, msg, *args, **kwargs)
 
-            # Handle Tracebacks
-            if exc_info:
-                buf = uio.StringIO()
-                if isinstance(exc_info, BaseException):
-                    sys.print_exception(exc_info, buf)
-                else:
-                    buf.write("(Traceback unavailable)\n")
-                full_msg += buf.getvalue()
+    def warning(self, msg, *args, **kwargs):
+        self.log(WARNING, msg, *args, **kwargs)
 
-            # 1. Console Output (Main Thread - Immediate)
-            if self.to_console:
-                if level >= ERROR:
-                    sys.stderr.write(full_msg)
-                else:
-                    sys.stdout.write(full_msg)
+    def error(self, msg, *args, **kwargs):
+        self.log(ERROR, msg, *args, **kwargs)
 
-            # 2. File Output (Worker Thread - Queued)
-            with self.lock:
-                self.queue.append(full_msg)
+    def critical(self, msg, *args, **kwargs):
+        self.log(CRITICAL, msg, *args, **kwargs)
 
-    # Convenience wrappers
-    def debug(self, msg, *args, exc_info=None):
-        self.log(DEBUG, msg, *args, exc_info=exc_info)
+def mem_info_str():
+    used = gc.mem_alloc()
+    free = gc.mem_free()
+    total = used + free
+    max_free = 0
+    try:
+        # idf_heap_info returns (total, free, largest_free, min_free)
+        max_free = max([x[2] for x in esp32.idf_heap_info(esp32.HEAP_DATA)])
+    except:
+        pass
+    return f"MEM: Used {used}, Free {free}, Total {total}, Max {max_free}"
 
-    def info(self, msg, *args, exc_info=None):
-        self.log(INFO, msg, *args, exc_info=exc_info)
-
-    def warning(self, msg, *args, exc_info=None):
-        self.log(WARNING, msg, *args, exc_info=exc_info)
-
-    def error(self, msg, *args, exc_info=None):
-        self.log(ERROR, msg, *args, exc_info=exc_info)
-
-    def critical(self, msg, *args, exc_info=None):
-        self.log(CRITICAL, msg, *args, exc_info=exc_info)
-
-    def _rotate(self):
-        try:
-            if os.stat(self.filename)[6] < self.max_bytes: return
-        except OSError: return
-        try: os.remove(f"{self.filename}.{self.backup_count}")
-        except OSError: pass
-        for i in range(self.backup_count - 1, 0, -1):
-            try: os.rename(f"{self.filename}.{i}", f"{self.filename}.{i+1}")
-            except OSError: pass
-        try: os.rename(self.filename, f"{self.filename}.1")
-        except OSError: pass
-
-    def _worker(self):
-        while self.running:
-            chunk = ""
-            with self.lock:
-                if self.queue:
-                    chunk = "".join(self.queue)
-                    self.queue = []
-
-            if chunk:
-                try:
-                    self._rotate()
-                    with open(self.filename, 'a') as f:
-                        f.write(chunk)
-                except Exception as e:
-                    print(f"!! LOGGER ERROR: {e}")
-
-            time.sleep(1)
-
-# --- Singleton Accessor ---
-def get_logger(filename="log.txt", level=INFO, to_console=True,
+def get_logger(filename="log.txt", level=WARNING, to_console=True,
                logger_name="",max_bytes=4096, backup_count=2):
-    """
-    Returns the singleton logger instance.
-    Initializes it on the first call using the provided arguments.
-    Subsequent calls ignore arguments and return the existing instance.
-    """
     global _logger_instance
     if _logger_instance is None:
-        _logger_instance = ThreadedLogger(
-            filename, level, to_console, logger_name, max_bytes, backup_count)
+        _logger_instance = Logger(level)
     return _logger_instance

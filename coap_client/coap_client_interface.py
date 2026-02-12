@@ -2,7 +2,10 @@ import time
 import json
 import threading
 import asyncio
-from aiocoap import Message, Code, Context
+import socket
+import struct
+# import logging
+from aiocoap import Message, Code, Context, resource
 
 # CoAP Configuration
 ROBOT_IP = "192.168.1.80"  # Robot IP Address
@@ -13,6 +16,12 @@ class CoapInterface:
         self.robot_ip = robot_ip
         self.loop = asyncio.new_event_loop()
         self.context = None
+        self.log_callback = None
+
+        # Start UDP Listener Thread
+        self._udp_thread = threading.Thread(target=self._run_udp_listener, daemon=True)
+        self._udp_thread.start()
+
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
         self._thread.start()
 
@@ -28,13 +37,66 @@ class CoapInterface:
         self.loop.run_forever()
 
     async def _init_context(self):
+        # Enable logging to debug 4.01 errors
+        # logging.basicConfig(level=logging.INFO)
+        # logging.getLogger("coap-server").setLevel(logging.DEBUG)
+        # logging.getLogger("coap").setLevel(logging.DEBUG)
+
         self.context = await Context.create_client_context()
-        print("[CoAP] Context initialized")
+        print("[CoAP] Context initialized (Client Only)")
+
+    def _run_udp_listener(self):
+        """Runs in a separate thread to listen for UDP multicast logs."""
+        MCAST_GRP = '224.0.1.187'
+        MCAST_PORT = 5683
+
+        # Determine local interface IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((self.robot_ip, 5683))
+            if_ip = s.getsockname()[0]
+        except:
+            if_ip = '0.0.0.0'
+        finally:
+            s.close()
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        except AttributeError:
+            pass
+
+        # Bind to all interfaces on the port
+        sock.bind(('0.0.0.0', MCAST_PORT))
+
+        # Join multicast group on the specific interface
+        try:
+            mreq = struct.pack("4s4s", socket.inet_aton(MCAST_GRP), socket.inet_aton(if_ip))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            print(f"[UDP] Listening for logs on {MCAST_GRP}:{MCAST_PORT} via {if_ip}")
+        except Exception as e:
+            print(f"[UDP] Failed to join multicast group: {e}")
+
+        while True:
+            try:
+                data, addr = sock.recvfrom(4096)
+                if self.log_callback:
+                    self.log_callback(data.decode('utf-8', errors='replace'))
+            except Exception as e:
+                print(f"[UDP] Listener error: {e}")
+                time.sleep(1)
 
     def close(self):
         if self.loop.is_running():
             self.loop.call_soon_threadsafe(self.loop.stop)
         self._thread.join()
+
+    def set_log_callback(self, callback):
+        self.log_callback = callback
+
+    def _on_log_received(self, msg):
+        if self.log_callback:
+            self.log_callback(msg)
 
     async def _send_request_async(self, path, payload):
         uri = f"coap://{self.robot_ip}/{path.lstrip('/')}"
@@ -95,6 +157,9 @@ def get_interface():
         print(f"[Client] Initializing CoAP Interface to {ROBOT_IP}...")
         _interface = CoapInterface(ROBOT_IP)
     return _interface
+
+def set_log_callback(callback):
+    get_interface().set_log_callback(callback)
 
 # --- Drop-in Replacements (Updated to use get_interface) ---
 

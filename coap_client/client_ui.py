@@ -12,7 +12,7 @@ import logging
 import warnings
 
 # Add 'init_client' to the list
-from coap_client_interface import post_to_messagebus, post_to_robot, init_client
+from coap_client_interface import post_to_messagebus, post_to_robot, init_client, set_log_callback
 from polar_plot_widget import PolarPlot
 
 
@@ -369,9 +369,47 @@ class ClientUi(tk.Frame):
         self.plot_xy = PlotXY(self.plot_frm, bg='white')
         self.plot_xy.grid(row=1, column=0, sticky="nsew")
 
+        self.log_frame = ttk.LabelFrame(self, text="Logs")
+        self.log_frame.grid(row=2, column=0, columnspan=2, sticky="nsew")
+
+        # Log Level Controls
+        self.log_ctrl_frame = tk.Frame(self.log_frame)
+        self.log_ctrl_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+
+        tk.Label(self.log_ctrl_frame, text="Console:").pack(side=tk.LEFT)
+        self.cb_console = ttk.Combobox(self.log_ctrl_frame, values=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], width=8, state="readonly")
+        self.cb_console.set("INFO")
+        self.cb_console.pack(side=tk.LEFT, padx=5)
+
+        tk.Label(self.log_ctrl_frame, text="Network:").pack(side=tk.LEFT)
+        self.cb_network = ttk.Combobox(self.log_ctrl_frame, values=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], width=8, state="readonly")
+        self.cb_network.set("INFO")
+        self.cb_network.pack(side=tk.LEFT, padx=5)
+
+        tk.Button(self.log_ctrl_frame, text="Set Level", command=self.do_set_log_level).pack(side=tk.LEFT, padx=5)
+
+        self.log_scroll = ttk.Scrollbar(self.log_frame)
+        self.log_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.log_text = tk.Text(self.log_frame, height=8, state='disabled',
+                                yscrollcommand=self.log_scroll.set)
+        self.log_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.log_scroll.config(command=self.log_text.yview)
+        self.max_log_lines = 100
+
+        set_log_callback(self.safe_log)
+
+    def safe_log(self, message):
+        self.after(0, lambda: self.log(message))
+
     def _do_ota(self):
         post_to_robot('/ota/enter')
 
+    def do_set_log_level(self):
+        level_map = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+        c_val = level_map.get(self.cb_console.get(), 20)
+        n_val = level_map.get(self.cb_network.get(), 20)
+        print(f"Setting log levels - Console: {c_val}, Network: {n_val}")
+        post_to_robot('/app/log/level', {'console': c_val, 'network': n_val})
 
     def do_plot_btn(self):
         x = list(range(0, 360 * 3, 5))
@@ -478,6 +516,15 @@ class ClientUi(tk.Frame):
             self.status_lbl['text'] = 'Calibration failed'
         self.status_lbl.update()
 
+    def log(self, message):
+        self.log_text.config(state='normal')
+        self.log_text.insert(tk.END, str(message) + "\n")
+        num_lines = int(self.log_text.index('end-1c').split('.')[0])
+        while num_lines > self.max_log_lines:
+            self.log_text.delete('1.0', '2.0')
+            num_lines = int(self.log_text.index('end-1c').split('.')[0])
+        self.log_text.see(tk.END)
+        self.log_text.config(state='disabled')
 
     # return main_frame
 

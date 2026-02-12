@@ -1,6 +1,9 @@
 from machine import SoftI2C
 import ustruct
 import time
+import utils.t_logger as t_logger
+
+log = t_logger.get_logger()
 
 class QMI8658:
     def __init__(self, i2c, addr=0x6B, board_orientation=None):
@@ -40,7 +43,7 @@ class QMI8658:
         # Wait for sensors to be ready
         time.sleep_ms(20)
 
-        print("QMI8658: Initialized")
+        log.info("QMI8658: Initialized")
 
     def read_temperature(self):
         """Returns temperature in degrees Celsius"""
@@ -49,7 +52,7 @@ class QMI8658:
             raw = ustruct.unpack("<h", data)[0]
             return raw / 256.0
         except Exception as e:
-            print(f"Error reading temp: {e}")
+            log.error(f"Error reading temp: {e}")
             return None
 
     def read_accel_xyz(self):
@@ -70,7 +73,7 @@ class QMI8658:
             z = (raw[self._board_orientation[2][0]] * self._board_orientation[2][1]) / 16384.0
             return (x, y, z)
         except Exception as e:
-            print(f"Error reading accel: {e}")
+            log.error(f"Error reading accel: {e}")
             return None
 
     def read_gyro_xyz(self):
@@ -90,5 +93,5 @@ class QMI8658:
             z = (raw[self._board_orientation[2][0]] * self._board_orientation[2][1]) / 16.0
             return (x, y, z)
         except Exception as e:
-            print(f"Error reading gyro: {e}")
+            log.error(f"Error reading gyro: {e}")
             return None
