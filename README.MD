@@ -1,5 +1,5 @@
 # Simple Robot
-This project contains a simple robot control software. The robot is constructed on a `Yahboom` STEM kit that includes a `Microbit V2` controller adn a Super:bit extension board ver 2. I replaced the `BBC Microbit V2` as it under powered and lacks RAM, WiFi and is a very slow. The `Microbit V2` was released be `Matrix:Bit ON3` from an unknown manufacturer. The `Matrix:Bit ON3` has a ESP32 MCU and some nice prehiferial on board. What was missing is documentation. The supplier was unable to produce the documentation and since there manufacturer is un know i was unable to obtain it. I had to test/explore the unit to obtain the Missing info. I have put together a simple differential drive robot with some sensor. The kit's main drawback is the DC motors have no odometer so driving the a rout is tricky.
+This project contains a simple robot control software. The robot is constructed on a `Yahboom` STEM kit that includes a `Microbit V2` controller adn a Super:bit extension board ver 2. I replaced the `BBC Microbit V2` as it under powered and lacks RAM, WiFi and is a very slow. The `Microbit V2` was released be `Matrix:Bit ON3` from an unknown manufacturer. The `Matrix:Bit ON3` has a ESP32 MCU and some nice prehiferial on board. What was missing is documentation. The supplier was unable to produce the documentation and since the manufacturer is unknown I was unable to obtain it. I had to test/explore the unit to obtain the missing info. I have put together a simple differential drive robot with some sensor. The kit's main drawback is the DC motors have no odometer so driving the a rout is tricky.
 Programming The robot uses MicroPython 1.26.1 (may change in the future)
 
 <img src="robot.png" alt="Robot picture" width="40%">
@@ -40,6 +40,7 @@ Programming The robot uses MicroPython 1.26.1 (may change in the future)
          |-[boards]-|
          |          |-[matrixbit_on3]
          |
+         |-[coap_client]
          |-[devices]-|
          |           |-[buzzer]
          |           |-[display]
@@ -51,7 +52,6 @@ Programming The robot uses MicroPython 1.26.1 (may change in the future)
          |
          |-[mbit_ext]
          |-[ota]
-         |-[restful_api*]
          |-[restful_api_client**]
          |-[tasks]
          |-[utils]
@@ -60,9 +60,15 @@ Programming The robot uses MicroPython 1.26.1 (may change in the future)
          |- main.py
          |- README.MD
 ```
-__Note__ * :  may change after refactoring
 
-__Note__ **: No ton MCU, only use on host to control robot
+__Note__ **: to be removed
 
 # FRS [TBD]
+* App receives commands using CoAP 
+* App sends logging using a multicast socket
+* App logging level may be controlled by host
+* OTA uses a REST since this makes file transfers easier
+* Robot internally uses a MessageBus for triggering commands and reporting results 
 
+# TODO
+- [x] Remove `restful_api_client`

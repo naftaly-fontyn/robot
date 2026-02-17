@@ -1,5 +1,0 @@
-srctype = pycopy-lib
-type = package
-version = 1.0
-author = Paul Sokolovsky
-long_desc = README.rst
